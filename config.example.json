@@ -1,0 +1,12 @@
+{
+  "workspaces": [
+    {
+      "name": "second-brain",
+      "path": "/Users/bruce/Vaults/SecondBrain"
+    },
+    {
+      "name": "chisel-dev",
+      "path": "/Users/bruce/GitHub/chisel"
+    }
+  ]
+}
