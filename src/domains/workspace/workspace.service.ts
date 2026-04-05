@@ -75,8 +75,29 @@ export class WorkspaceService {
     return this.ingestText(name, clipboard, title);
   }
 
-  ingestUrl(_name: string, _url: string, _title?: string): never {
-    throw new McpError(ErrorCode.InternalError, 'URL ingestion not yet implemented');
+  async ingestUrl(name: string, url: string, title?: string): Promise<IngestResult> {
+    const jinaUrl = `https://r.jina.ai/${url}`;
+    let response: Response;
+
+    try {
+      response = await fetch(jinaUrl, {
+        headers: { Accept: 'text/markdown' },
+      });
+    } catch (err) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    if (!response.ok) {
+      throw new McpError(ErrorCode.InternalError, `Jina Reader returned ${response.status} for ${url}`);
+    }
+
+    const content = await response.text();
+    const resolvedTitle = title ?? extractJinaTitle(content) ?? url;
+
+    return this.ingestText(name, content, resolvedTitle);
   }
 
   search(name: string, query: string, limit = 10): SearchResults {
@@ -238,4 +259,9 @@ function slugify(title?: string): string {
     .slice(0, 50);
 
   return slug || 'untitled';
+}
+
+function extractJinaTitle(content: string): string | null {
+  const match = /^Title:\s*(.+)$/m.exec(content);
+  return match ? match[1]!.trim() : null;
 }

@@ -6,12 +6,26 @@ Canonical behavior reference for the `@teknologika/chisel-knowledge-mcp` server.
 
 `chisel-knowledge-mcp` is a stdio-only Model Context Protocol server for building and managing knowledge workspaces. It loads workspace definitions at startup, exposes workspace-oriented tools, and keeps all protocol traffic on stdout while logging to stderr.
 
+The package is dual-mode:
+
+- The root export (`@teknologika/chisel-knowledge-mcp`) exposes the workspace service, knowledge index, and workspace types for direct library consumers.
+- The server export (`@teknologika/chisel-knowledge-mcp/server`) starts the stdio MCP server used by Claude Desktop and other MCP clients.
+
 The server is designed around a small set of local filesystem conventions:
 
 - Workspace roots are defined in `~/.chisel-knowledge/config.json`
-- Raw ingests are written to `<workspace>/inbox/`
+- Raw and fetched ingests are written to `<workspace>/inbox/`
 - Compiled or curated content is read from `<workspace>/knowledge/`
 - Processed inbox files are moved into `<workspace>/inbox/archived/`
+
+## Package entry points
+
+The published package exposes two entry points with distinct responsibilities:
+
+- `@teknologika/chisel-knowledge-mcp` is the library surface. It re-exports `WorkspaceService`, `KnowledgeIndex`, and the workspace-related types so local consumers can work with the same service layer without speaking MCP.
+- `@teknologika/chisel-knowledge-mcp/server` is the MCP transport entry. It preserves the stdio server behavior and remains the binary target for command-line and desktop integrations.
+
+This split keeps the protocol layer and the direct library surface aligned while allowing consumers to choose the integration style that fits their runtime.
 
 ## Startup and configuration
 
@@ -138,11 +152,31 @@ Behavior:
 
 ### `knowledge_ingest_url`
 
-URL ingestion is defined in the tool surface but not implemented yet.
+Fetches a web page through Jina Reader, then writes the rendered Markdown into the workspace inbox.
+
+Parameters:
+
+- `workspace`: workspace name
+- `url`: the source URL to fetch
+- `title`: optional title used for the file slug when provided
+
+Result shape:
+
+```json
+{
+  "file": "inbox/2026-04-05-every-copywriting-formula-ever.md",
+  "workspace": "second-brain"
+}
+```
 
 Behavior:
 
-- Throws `McpError(ErrorCode.InternalError, "URL ingestion not yet implemented")`
+- Fetches `https://r.jina.ai/<url>` with an `Accept: text/markdown` header
+- Surfaces fetch failures as `McpError(ErrorCode.InternalError, "...")`
+- Surfaces non-2xx Jina responses as `McpError(ErrorCode.InternalError, "Jina Reader returned <status> for <url>")`
+- Extracts the title from Jina frontmatter when no explicit title is provided
+- Falls back to the source URL when neither an explicit title nor Jina title metadata is available
+- Reuses the same file-writing flow as `knowledge_ingest_text`
 
 ### `knowledge_search`
 
@@ -310,6 +344,8 @@ Workspace roots use two well-known subdirectories:
 - `<workspace>/.knowledge-index.db` for the local FTS index used by `knowledge_search`
 
 Ingest tools write to `inbox/`. Inbox listing and archiving tools operate on `inbox/`, while read and list tools operate on `knowledge/` unless a specific path is provided.
+
+All ingest tools preserve the same output contract: they create a dated Markdown file under `<workspace>/inbox/` and return the file path relative to the workspace root together with the workspace name.
 
 The search tool rebuilds its index from the Markdown files in `knowledge/` on demand, so search results always reflect the current filesystem state without requiring a separate indexing command. The database file is created the first time the search path runs against a workspace that already has a `knowledge/` directory.
 

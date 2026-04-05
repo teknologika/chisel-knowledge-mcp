@@ -1,12 +1,21 @@
 {
   "name": "@teknologika/chisel-knowledge-mcp",
   "version": "0.1.0",
-  "description": "Standalone MCP server for building and managing knowledge workspaces.",
+  "description": "Standalone MCP server and library for building and managing knowledge workspaces.",
   "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server.js"
+  },
   "bin": {
     "chisel-knowledge-mcp": "dist/server.js"
   },
-  "main": "dist/server.js",
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/teknologika/chisel-knowledge-mcp.git"

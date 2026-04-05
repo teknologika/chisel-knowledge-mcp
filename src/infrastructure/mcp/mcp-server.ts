@@ -65,10 +65,7 @@ export function createMcpServer(): McpServer {
     'knowledge_ingest_url',
     'Ingest a URL into a workspace inbox.',
     KnowledgeIngestUrlSchema,
-    async ({ workspace, url, title }) => {
-      service.ingestUrl(workspace, url, title);
-      return textContent(null);
-    },
+    async ({ workspace, url, title }) => textContent(await service.ingestUrl(workspace, url, title)),
   );
 
   server.tool(
