@@ -1,11 +1,7 @@
-import { logger } from '../shared/logging/index.js';
-import { startMcpServer } from '../infrastructure/mcp/index.js';
+import { startMcpServer } from './infrastructure/mcp/index.js';
 
-async function main(): Promise<void> {
-  await startMcpServer();
-}
-
-main().catch((error: unknown) => {
-  logger.error({ error }, 'Failed to start chisel-knowledge-mcp');
-  process.exitCode = 1;
+startMcpServer().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`Fatal: ${message}\n`);
+  process.exit(1);
 });
