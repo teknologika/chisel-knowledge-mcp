@@ -146,7 +146,7 @@ Behavior:
 
 ### `knowledge_search`
 
-Searches knowledge files with a workspace-local SQLite FTS5 index.
+Searches knowledge files with a workspace-local SQLite FTS5 index backed by Node's built-in `node:sqlite` module.
 
 Parameters:
 
@@ -173,6 +173,7 @@ Behavior:
 - Resolves the workspace by name
 - Returns `{ "results": [] }` when `<workspace>/knowledge/` does not exist
 - Builds or reuses a SQLite database at `<workspace>/.knowledge-index.db`
+- Uses Node 22's built-in SQLite runtime rather than a native addon, so the search path does not depend on a host-specific `.node` binary
 - Re-indexes Markdown files under `<workspace>/knowledge/` on each search
 - Skips files whose modification time has not changed since the last index pass
 - Stores one chunk per heading section, with oversized sections split on paragraph boundaries
@@ -310,7 +311,7 @@ Workspace roots use two well-known subdirectories:
 
 Ingest tools write to `inbox/`. Inbox listing and archiving tools operate on `inbox/`, while read and list tools operate on `knowledge/` unless a specific path is provided.
 
-The search tool rebuilds its index from the Markdown files in `knowledge/` on demand, so search results always reflect the current filesystem state without requiring a separate indexing command.
+The search tool rebuilds its index from the Markdown files in `knowledge/` on demand, so search results always reflect the current filesystem state without requiring a separate indexing command. The database file is created the first time the search path runs against a workspace that already has a `knowledge/` directory.
 
 The default ingest filename format is:
 

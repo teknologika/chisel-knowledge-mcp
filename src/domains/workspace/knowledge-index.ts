@@ -1,6 +1,6 @@
-import Database from 'better-sqlite3';
 import { readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { SearchResults } from './workspace.types.js';
 
 const SCHEMA = `
@@ -32,12 +32,12 @@ const SCHEMA = `
 `;
 
 export class KnowledgeIndex {
-  private readonly db: Database.Database;
+  private readonly db: DatabaseSync;
 
   constructor(private readonly workspacePath: string) {
     const dbPath = join(workspacePath, '.knowledge-index.db');
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec(SCHEMA);
   }
 
@@ -56,14 +56,18 @@ export class KnowledgeIndex {
     const raw = readFileSync(absPath, 'utf8');
     const chunks = chunkMarkdown(raw);
 
-    const insert = this.db.prepare(
-      'INSERT INTO chunks (path, heading, body, mtime) VALUES (?, ?, ?, ?)',
-    );
-    const insertMany = this.db.transaction((items: RawChunk[]) => {
-      for (const chunk of items) insert.run(path, chunk.heading ?? null, chunk.body, mtime);
-    });
+    const insert = this.db.prepare('INSERT INTO chunks (path, heading, body, mtime) VALUES (?, ?, ?, ?)');
 
-    insertMany(chunks);
+    this.db.exec('BEGIN');
+    try {
+      for (const chunk of chunks) {
+        insert.run(path, chunk.heading ?? null, chunk.body, mtime);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   removeFile(absPath: string): void {
