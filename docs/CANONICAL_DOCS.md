@@ -4,6 +4,7 @@ This file is the authoritative root-of-trust for documentation discovery in this
 
 | Area | Code evidence (paths/symbols) | Canonical doc |
 | --- | --- | --- |
+| MCP server behavior and workspace operations | `src/server.ts`, `src/shared/config/config.ts`, `src/domains/workspace/workspace.service.ts`, `src/infrastructure/mcp/mcp-server.ts` | [`docs/chisel-knowledge-mcp.md`](./chisel-knowledge-mcp.md) |
 
 
 ## How To Extend This Mapping

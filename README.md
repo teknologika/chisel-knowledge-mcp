@@ -2,6 +2,8 @@
 
 Standalone MCP server for building and managing knowledge workspaces.
 
+Canonical behavior documentation lives in [docs/chisel-knowledge-mcp.md](./docs/chisel-knowledge-mcp.md).
+
 ## Requirements
 
 - Node.js 22 or newer
@@ -31,26 +33,7 @@ The server reads workspace configuration from:
 
 `~/.chisel-knowledge/config.json`
 
-If the file does not exist, the server starts with zero configured workspaces and logs a warning to stderr.
-
-Example configuration:
-
-```json
-{
-  "workspaces": [
-    {
-      "name": "second-brain",
-      "path": "/Users/bruce/Vaults/SecondBrain"
-    },
-    {
-      "name": "chisel-dev",
-      "path": "/Users/bruce/GitHub/chisel"
-    }
-  ]
-}
-```
-
-Workspace names must be unique and kebab-case. Workspace paths must be absolute.
+If the file does not exist, the server starts with zero configured workspaces and logs a warning to stderr. See [config.example.json](./config.example.json) for the expected shape.
 
 ## Claude Desktop
 
@@ -67,21 +50,8 @@ Use this MCP server with Claude Desktop by adding:
 }
 ```
 
-## Tools
-
-- `knowledge_list_workspaces`
-- `knowledge_workspace_status`
-- `knowledge_ingest_text`
-- `knowledge_ingest_clipboard`
-- `knowledge_ingest_url`
-- `knowledge_search`
-- `knowledge_read`
-- `knowledge_list`
-
 ## Notes
 
 - Transport is stdio only.
 - Logging goes to stderr so stdout stays reserved for MCP protocol messages.
-- `knowledge_ingest_*` writes to `inbox/`.
-- `knowledge_read` and `knowledge_list` read from `knowledge/`.
-- `knowledge_ingest_url` is a stub and returns an internal error for now.
+- The binary is `chisel-knowledge-mcp`.
