@@ -64,7 +64,7 @@ export class WorkspaceService {
     writeFileSync(filePath, content, 'utf8');
 
     return {
-      file: filePath,
+      file: relative(workspace.path, filePath),
       workspace: workspace.name,
     };
   }
@@ -89,7 +89,7 @@ export class WorkspaceService {
 
     return {
       content,
-      file: filePath,
+      file: relative(workspace.path, filePath),
     };
   }
 
@@ -130,7 +130,7 @@ export class WorkspaceService {
     writeFileSync(target, content, 'utf8');
 
     return {
-      file: target,
+      file: relative(workspace.path, target),
       workspace: name,
     };
   }
@@ -155,8 +155,8 @@ export class WorkspaceService {
     renameSync(source, destination);
 
     return {
-      original: source,
-      archived: destination,
+      original: relative(workspace.path, source),
+      archived: relative(workspace.path, destination),
       workspace: name,
     };
   }

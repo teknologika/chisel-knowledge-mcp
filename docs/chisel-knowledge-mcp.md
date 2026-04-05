@@ -112,7 +112,7 @@ Behavior:
 
 - Creates `<workspace>/inbox/` if needed
 - Writes a Markdown file named `{YYYY-MM-DD}-{slug}.md`
-- Returns the absolute file path and workspace name
+- Returns the file path relative to the workspace root and workspace name
 
 Slug rules:
 
@@ -202,7 +202,7 @@ Result shape:
 
 ```json
 {
-  "file": "/Users/bruce/Vaults/SecondBrain/knowledge/mcp-arch/compile.md",
+  "file": "knowledge/mcp-arch/compile.md",
   "workspace": "second-brain"
 }
 ```
@@ -213,7 +213,7 @@ Behavior:
 - Resolves the target under `<workspace>/knowledge/`
 - Creates parent directories as needed
 - Writes the file as UTF-8
-- Returns the absolute file path that was written
+- Returns the file path relative to the workspace root
 
 ### `knowledge_archive`
 
@@ -228,8 +228,8 @@ Result shape:
 
 ```json
 {
-  "original": "/Users/bruce/Vaults/SecondBrain/inbox/2026-04-05-note.md",
-  "archived": "/Users/bruce/Vaults/SecondBrain/inbox/archived/2026-04-05-note.md",
+  "original": "inbox/2026-04-05-note.md",
+  "archived": "inbox/archived/2026-04-05-note.md",
   "workspace": "second-brain"
 }
 ```
@@ -242,6 +242,7 @@ Behavior:
 - Moves the source file into the archive directory
 - Uses the basename of the source file for the archive name
 - Prefixes the archive filename with `Date.now()` when the target name already exists
+- Returns both archived paths relative to the workspace root
 
 ### `knowledge_read`
 
@@ -256,7 +257,7 @@ Behavior:
 
 - Resolves the requested path against the workspace root
 - Reads the file contents as UTF-8
-- Returns the content and absolute file path
+- Returns the content and file path relative to the workspace root
 
 ### `knowledge_list`
 
