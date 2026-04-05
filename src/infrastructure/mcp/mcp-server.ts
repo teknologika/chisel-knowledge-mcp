@@ -2,14 +2,17 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { WorkspaceService } from '../../domains/workspace/index.js';
 import {
+  KnowledgeArchiveSchema,
   KnowledgeIngestClipboardSchema,
   KnowledgeIngestTextSchema,
   KnowledgeIngestUrlSchema,
+  KnowledgeListInboxSchema,
   KnowledgeListSchema,
   KnowledgeListWorkspacesSchema,
   KnowledgeReadSchema,
   KnowledgeSearchSchema,
   KnowledgeWorkspaceStatusSchema,
+  KnowledgeWriteSchema,
 } from './tool-schemas.js';
 
 function textContent(value: unknown): { content: Array<{ type: 'text'; text: string }> } {
@@ -73,6 +76,27 @@ export function createMcpServer(): McpServer {
     'Search workspace knowledge.',
     KnowledgeSearchSchema,
     async ({ workspace, query, limit }) => textContent(service.search(workspace, query, limit)),
+  );
+
+  server.tool(
+    'knowledge_list_inbox',
+    'List uncompiled files in a workspace inbox.',
+    KnowledgeListInboxSchema,
+    async ({ workspace }) => textContent(service.listInbox(workspace)),
+  );
+
+  server.tool(
+    'knowledge_write',
+    'Write a compiled article into the workspace knowledge directory.',
+    KnowledgeWriteSchema,
+    async ({ workspace, path, content }) => textContent(service.write(workspace, path, content)),
+  );
+
+  server.tool(
+    'knowledge_archive',
+    'Move a processed inbox file to inbox/archived/.',
+    KnowledgeArchiveSchema,
+    async ({ workspace, file }) => textContent(service.archive(workspace, file)),
   );
 
   server.tool(

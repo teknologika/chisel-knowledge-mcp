@@ -11,6 +11,7 @@ The server is designed around a small set of local filesystem conventions:
 - Workspace roots are defined in `~/.chisel-knowledge/config.json`
 - Raw ingests are written to `<workspace>/inbox/`
 - Compiled or curated content is read from `<workspace>/knowledge/`
+- Processed inbox files are moved into `<workspace>/inbox/archived/`
 
 ## Startup and configuration
 
@@ -157,6 +158,91 @@ Behavior:
 
 - Returns `{ "results": [] }`
 
+### `knowledge_list_inbox`
+
+Lists Markdown files that are waiting in a workspace inbox.
+
+Parameters:
+
+- `workspace`: workspace name
+
+Result shape:
+
+```json
+{
+  "files": [
+    {
+      "path": "inbox/2026-04-05-note.md",
+      "size": 512,
+      "modified": "2026-04-05T10:15:00.000Z"
+    }
+  ]
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Reads `<workspace>/inbox/` recursively
+- Skips anything under `<workspace>/inbox/archived/`
+- Returns `.md` files sorted by relative path with size and modified timestamp
+- Returns an empty file list when `inbox/` does not exist
+
+### `knowledge_write`
+
+Writes a compiled article into the workspace knowledge directory.
+
+Parameters:
+
+- `workspace`: workspace name
+- `path`: file path relative to `<workspace>/knowledge/`
+- `content`: UTF-8 text to write
+
+Result shape:
+
+```json
+{
+  "file": "/Users/bruce/Vaults/SecondBrain/knowledge/mcp-arch/compile.md",
+  "workspace": "second-brain"
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Resolves the target under `<workspace>/knowledge/`
+- Creates parent directories as needed
+- Writes the file as UTF-8
+- Returns the absolute file path that was written
+
+### `knowledge_archive`
+
+Moves a processed inbox file into the archive area.
+
+Parameters:
+
+- `workspace`: workspace name
+- `file`: path relative to the workspace root, such as `inbox/2026-04-05-note.md`
+
+Result shape:
+
+```json
+{
+  "original": "/Users/bruce/Vaults/SecondBrain/inbox/2026-04-05-note.md",
+  "archived": "/Users/bruce/Vaults/SecondBrain/inbox/archived/2026-04-05-note.md",
+  "workspace": "second-brain"
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Verifies that the source file exists
+- Creates `<workspace>/inbox/archived/` as needed
+- Moves the source file into the archive directory
+- Uses the basename of the source file for the archive name
+- Prefixes the archive filename with `Date.now()` when the target name already exists
+
 ### `knowledge_read`
 
 Reads a file from the workspace.
@@ -193,9 +279,10 @@ Behavior:
 Workspace roots use two well-known subdirectories:
 
 - `<workspace>/inbox/` for raw ingested content
+- `<workspace>/inbox/archived/` for processed inbox files
 - `<workspace>/knowledge/` for curated or compiled knowledge
 
-Ingest tools write to `inbox/`. Read and list tools operate on `knowledge/` unless a specific path is provided.
+Ingest tools write to `inbox/`. Inbox listing and archiving tools operate on `inbox/`, while read and list tools operate on `knowledge/` unless a specific path is provided.
 
 The default ingest filename format is:
 

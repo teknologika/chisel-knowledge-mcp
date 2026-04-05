@@ -1,10 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { resolve, join, relative } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve, join, relative } from 'node:path';
 import { execSync } from 'node:child_process';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type {
+  ArchiveResult,
   ConfigFile,
   IngestResult,
+  InboxListResult,
   KnowledgeFile,
   KnowledgeListResult,
   ReadResult,
@@ -12,6 +14,7 @@ import type {
   WorkspaceConfig,
   WorkspaceListing,
   WorkspaceStatus,
+  WriteResult,
 } from './workspace.types.js';
 import { loadConfig } from '../../shared/config/index.js';
 
@@ -105,7 +108,64 @@ export class WorkspaceService {
     };
   }
 
-  private collectMarkdownFiles(workspaceRoot: string, directory: string): KnowledgeFile[] {
+  listInbox(name: string): InboxListResult {
+    const workspace = this.resolve(name);
+    const inboxRoot = join(workspace.path, 'inbox');
+
+    if (!existsSync(inboxRoot)) {
+      return { files: [] };
+    }
+
+    const files = this.collectMarkdownFiles(workspace.path, inboxRoot, ['archived']);
+
+    return {
+      files,
+    };
+  }
+
+  write(name: string, pathName: string, content: string): WriteResult {
+    const workspace = this.resolve(name);
+    const target = join(workspace.path, 'knowledge', pathName);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content, 'utf8');
+
+    return {
+      file: target,
+      workspace: name,
+    };
+  }
+
+  archive(name: string, file: string): ArchiveResult {
+    const workspace = this.resolve(name);
+    const source = join(workspace.path, file);
+
+    if (!existsSync(source)) {
+      throw new McpError(ErrorCode.InvalidParams, `File not found: ${file}`);
+    }
+
+    const archivedDir = join(workspace.path, 'inbox', 'archived');
+    mkdirSync(archivedDir, { recursive: true });
+
+    let destination = join(archivedDir, basename(source));
+
+    if (existsSync(destination)) {
+      destination = join(archivedDir, `${Date.now()}-${basename(source)}`);
+    }
+
+    renameSync(source, destination);
+
+    return {
+      original: source,
+      archived: destination,
+      workspace: name,
+    };
+  }
+
+  private collectMarkdownFiles(
+    workspaceRoot: string,
+    directory: string,
+    excludedDirectories: string[] = [],
+  ): KnowledgeFile[] {
     const entries = readdirSync(directory, { withFileTypes: true });
     const files: KnowledgeFile[] = [];
 
@@ -113,7 +173,11 @@ export class WorkspaceService {
       const entryPath = join(directory, entry.name);
 
       if (entry.isDirectory()) {
-        files.push(...this.collectMarkdownFiles(workspaceRoot, entryPath));
+        if (excludedDirectories.includes(entry.name)) {
+          continue;
+        }
+
+        files.push(...this.collectMarkdownFiles(workspaceRoot, entryPath, excludedDirectories));
         continue;
       }
 

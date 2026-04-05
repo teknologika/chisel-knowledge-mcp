@@ -22,9 +22,30 @@ export type IngestResult = {
   workspace: string;
 };
 
+export type InboxFile = {
+  path: string;
+  size: number;
+  modified: string;
+};
+
+export type InboxListResult = {
+  files: InboxFile[];
+};
+
 export type ReadResult = {
   content: string;
   file: string;
+};
+
+export type WriteResult = {
+  file: string;
+  workspace: string;
+};
+
+export type ArchiveResult = {
+  original: string;
+  archived: string;
+  workspace: string;
 };
 
 export type KnowledgeFile = {
