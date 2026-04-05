@@ -1,6 +1,6 @@
 # chisel-knowledge-mcp
 
-Standalone MCP server for building and managing knowledge workspaces.
+Standalone MCP server and library for building and managing knowledge workspaces.
 
 Canonical behavior documentation lives in [docs/chisel-knowledge-mcp.md](./docs/chisel-knowledge-mcp.md).
 
@@ -14,6 +14,16 @@ Canonical behavior documentation lives in [docs/chisel-knowledge-mcp.md](./docs/
 ```bash
 npm install
 ```
+
+## Library usage
+
+Import the workspace service and related types directly from the package root:
+
+```ts
+import { WorkspaceService, KnowledgeIndex } from '@teknologika/chisel-knowledge-mcp';
+```
+
+The MCP server remains available from the `server` subpath and through the published binary.
 
 ## Build
 
@@ -55,3 +65,4 @@ Use this MCP server with Claude Desktop by adding:
 - Transport is stdio only.
 - Logging goes to stderr so stdout stays reserved for MCP protocol messages.
 - The binary is `chisel-knowledge-mcp`.
+- The package root exports the library surface; `@teknologika/chisel-knowledge-mcp/server` resolves to the MCP server entry point.
