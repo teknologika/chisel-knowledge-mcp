@@ -16,6 +16,7 @@ import type {
   WorkspaceStatus,
   WriteResult,
 } from './workspace.types.js';
+import { KnowledgeIndex } from './knowledge-index.js';
 import { loadConfig } from '../../shared/config/index.js';
 
 export class WorkspaceService {
@@ -78,8 +79,26 @@ export class WorkspaceService {
     throw new McpError(ErrorCode.InternalError, 'URL ingestion not yet implemented');
   }
 
-  search(_name: string, _query: string, _limit?: number): SearchResults {
-    return { results: [] };
+  search(name: string, query: string, limit = 10): SearchResults {
+    const workspace = this.resolve(name);
+    const knowledgeRoot = join(workspace.path, 'knowledge');
+
+    if (!existsSync(knowledgeRoot)) {
+      return { results: [] };
+    }
+
+    const index = new KnowledgeIndex(workspace.path);
+
+    try {
+      const files = this.collectMarkdownFiles(workspace.path, knowledgeRoot);
+      for (const file of files) {
+        index.indexFile(join(workspace.path, file.path));
+      }
+
+      return index.search(query, limit);
+    } finally {
+      index.close();
+    }
   }
 
   read(name: string, pathName: string): ReadResult {

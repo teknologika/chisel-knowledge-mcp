@@ -146,7 +146,7 @@ Behavior:
 
 ### `knowledge_search`
 
-Search is defined in the tool surface but still stubbed.
+Searches knowledge files with a workspace-local SQLite FTS5 index.
 
 Parameters:
 
@@ -154,9 +154,33 @@ Parameters:
 - `query`: search text
 - `limit`: optional maximum result count
 
+Result shape:
+
+```json
+{
+  "results": [
+    {
+      "file": "knowledge/compile-architecture.md",
+      "excerpt": "**Compile Workflow**\n...snippet text...",
+      "score": 1
+    }
+  ]
+}
+```
+
 Behavior:
 
-- Returns `{ "results": [] }`
+- Resolves the workspace by name
+- Returns `{ "results": [] }` when `<workspace>/knowledge/` does not exist
+- Builds or reuses a SQLite database at `<workspace>/.knowledge-index.db`
+- Re-indexes Markdown files under `<workspace>/knowledge/` on each search
+- Skips files whose modification time has not changed since the last index pass
+- Stores one chunk per heading section, with oversized sections split on paragraph boundaries
+- Treats level 1 to 3 headings as chunk boundaries
+- Strips YAML frontmatter, HTML comments, and image markup before indexing
+- Preserves image alt text for search terms
+- Returns snippets with the matching excerpt from the Markdown body and the nearest chunk heading when available
+- Normalizes query tokens into FTS prefix terms, so each word is matched with a trailing wildcard
 
 ### `knowledge_list_inbox`
 
@@ -282,8 +306,11 @@ Workspace roots use two well-known subdirectories:
 - `<workspace>/inbox/` for raw ingested content
 - `<workspace>/inbox/archived/` for processed inbox files
 - `<workspace>/knowledge/` for curated or compiled knowledge
+- `<workspace>/.knowledge-index.db` for the local FTS index used by `knowledge_search`
 
 Ingest tools write to `inbox/`. Inbox listing and archiving tools operate on `inbox/`, while read and list tools operate on `knowledge/` unless a specific path is provided.
+
+The search tool rebuilds its index from the Markdown files in `knowledge/` on demand, so search results always reflect the current filesystem state without requiring a separate indexing command.
 
 The default ingest filename format is:
 
