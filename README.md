@@ -41,7 +41,7 @@ npx tsc --noEmit
 
 The server reads workspace configuration from:
 
-`~/.chisel-knowledge/config.json`
+`~/.chisel/config.json`
 
 If the file does not exist, the server starts with zero configured workspaces and logs a warning to stderr. See [config.example.json](./config.example.json) for the expected shape.
 

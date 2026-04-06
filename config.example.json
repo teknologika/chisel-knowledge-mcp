@@ -2,11 +2,13 @@
   "workspaces": [
     {
       "name": "second-brain",
-      "path": "/Users/bruce/Vaults/SecondBrain"
+      "path": "/Users/test/SecondBrain",
+      "default" : true
     },
     {
-      "name": "chisel-dev",
-      "path": "/Users/bruce/GitHub/chisel"
+      "name": "third-brain",
+      "path": "/Users/test/ThirdBrain",
+      "default" : false
     }
   ]
 }

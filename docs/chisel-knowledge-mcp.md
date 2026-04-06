@@ -13,7 +13,7 @@ The package is dual-mode:
 
 The server is designed around a small set of local filesystem conventions:
 
-- Workspace roots are defined in `~/.chisel/knowledge-config.json`
+- Workspace roots are defined in `~/.chisel/config.json`
 - Raw and fetched ingests are written to `<workspace>/inbox/`
 - Compiled or curated content is read from `<workspace>/knowledge/`
 - Processed inbox files are moved into `<workspace>/inbox/archived/`
@@ -29,7 +29,7 @@ This split keeps the protocol layer and the direct library surface aligned while
 
 ## Startup and configuration
 
-On startup, the server reads `~/.chisel/knowledge-config.json`.
+On startup, the server reads `~/.chisel/config.json`.
 
 If the file does not exist, the server starts with zero configured workspaces and logs a warning to stderr. Configuration is validated with Zod before use.
 

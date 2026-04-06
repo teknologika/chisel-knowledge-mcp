@@ -31,7 +31,7 @@ const ConfigSchema = z
   });
 
 export function defaultConfigPath(): string {
-  return join(homedir(), '.chisel', 'knowledge-config.json');
+  return join(homedir(), '.chisel', 'config.json');
 }
 
 export function loadConfig(configPath: string = defaultConfigPath()): ConfigFile {
