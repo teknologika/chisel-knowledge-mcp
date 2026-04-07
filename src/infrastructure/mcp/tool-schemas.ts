@@ -23,6 +23,11 @@ const KnowledgeSearchInputSchema = z.object({
   query: z.string(),
   limit: z.number().int().positive().optional(),
 });
+const KnowledgeSearchInboxInputSchema = z.object({
+  workspace: z.string(),
+  query: z.string(),
+  limit: z.number().int().positive().optional(),
+});
 const KnowledgeListInboxInputSchema = z.object({
   workspace: z.string(),
 });
@@ -50,6 +55,7 @@ export const KnowledgeIngestTextSchema = KnowledgeIngestTextInputSchema.shape;
 export const KnowledgeIngestClipboardSchema = KnowledgeIngestClipboardInputSchema.shape;
 export const KnowledgeIngestUrlSchema = KnowledgeIngestUrlInputSchema.shape;
 export const KnowledgeSearchSchema = KnowledgeSearchInputSchema.shape;
+export const KnowledgeSearchInboxSchema = KnowledgeSearchInboxInputSchema.shape;
 export const KnowledgeListInboxSchema = KnowledgeListInboxInputSchema.shape;
 export const KnowledgeWriteSchema = KnowledgeWriteInputSchema.shape;
 export const KnowledgeArchiveSchema = KnowledgeArchiveInputSchema.shape;
@@ -63,6 +69,7 @@ export const ToolSchemas = {
   knowledge_ingest_clipboard: KnowledgeIngestClipboardSchema,
   knowledge_ingest_url: KnowledgeIngestUrlSchema,
   knowledge_search: KnowledgeSearchSchema,
+  knowledge_search_inbox: KnowledgeSearchInboxSchema,
   knowledge_list_inbox: KnowledgeListInboxSchema,
   knowledge_write: KnowledgeWriteSchema,
   knowledge_archive: KnowledgeArchiveSchema,

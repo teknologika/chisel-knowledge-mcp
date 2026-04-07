@@ -2,6 +2,7 @@
 // and other consumers without requiring the MCP protocol.
 export { WorkspaceService } from './domains/workspace/workspace.service.js';
 export { KnowledgeIndex } from './domains/workspace/knowledge-index.js';
+export { InboxIndex } from './domains/workspace/inbox-index.js';
 export type {
   WorkspaceConfig,
   ConfigFile,

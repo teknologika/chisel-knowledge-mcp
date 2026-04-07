@@ -8,7 +8,7 @@ Canonical behavior reference for the `@teknologika/chisel-knowledge-mcp` server.
 
 The package is dual-mode:
 
-- The root export (`@teknologika/chisel-knowledge-mcp`) exposes the workspace service, knowledge index, and workspace types for direct library consumers.
+- The root export (`@teknologika/chisel-knowledge-mcp`) exposes the workspace service, inbox and knowledge indexes, and workspace types for direct library consumers.
 - The server export (`@teknologika/chisel-knowledge-mcp/server`) starts the stdio MCP server used by Claude Desktop and other MCP clients.
 
 The server is designed around a small set of local filesystem conventions:
@@ -17,12 +17,14 @@ The server is designed around a small set of local filesystem conventions:
 - Raw and fetched ingests are written to `<workspace>/inbox/`
 - Compiled or curated content is read from `<workspace>/knowledge/`
 - Processed inbox files are moved into `<workspace>/inbox/archived/`
+- Inbox files are indexed into `<workspace>/.inbox-index.db` as they are written so they can be searched immediately.
+- Knowledge files continue to use `<workspace>/.knowledge-index.db` and are re-indexed on demand when searched.
 
 ## Package entry points
 
 The published package exposes two entry points with distinct responsibilities:
 
-- `@teknologika/chisel-knowledge-mcp` is the library surface. It re-exports `WorkspaceService`, `KnowledgeIndex`, and the workspace-related types so local consumers can work with the same service layer without speaking MCP.
+- `@teknologika/chisel-knowledge-mcp` is the library surface. It re-exports `WorkspaceService`, `KnowledgeIndex`, `InboxIndex`, and the workspace-related types so local consumers can work with the same service layer without speaking MCP.
 - `@teknologika/chisel-knowledge-mcp/server` is the MCP transport entry. It preserves the stdio server behavior and remains the binary target for command-line and desktop integrations.
 
 This split keeps the protocol layer and the direct library surface aligned while allowing consumers to choose the integration style that fits their runtime.
@@ -127,6 +129,7 @@ Behavior:
 - Creates `<workspace>/inbox/` if needed
 - Writes a Markdown file named `{YYYY-MM-DD}-{slug}.md`
 - Returns the file path relative to the workspace root and workspace name
+- Indexes the new file into `<workspace>/.inbox-index.db` before returning
 
 Slug rules:
 
@@ -209,6 +212,44 @@ Behavior:
 - Builds or reuses a SQLite database at `<workspace>/.knowledge-index.db`
 - Uses Node 22's built-in SQLite runtime rather than a native addon, so the search path does not depend on a host-specific `.node` binary
 - Re-indexes Markdown files under `<workspace>/knowledge/` on each search
+- Skips files whose modification time has not changed since the last index pass
+- Stores one chunk per heading section, with oversized sections split on paragraph boundaries
+- Treats level 1 to 3 headings as chunk boundaries
+- Strips YAML frontmatter, HTML comments, and image markup before indexing
+- Preserves image alt text for search terms
+- Returns snippets with the matching excerpt from the Markdown body and the nearest chunk heading when available
+- Normalizes query tokens into FTS prefix terms, so each word is matched with a trailing wildcard
+
+### `knowledge_search_inbox`
+
+Searches inbox files with a workspace-local SQLite FTS5 index backed by Node's built-in `node:sqlite` module.
+
+Parameters:
+
+- `workspace`: workspace name
+- `query`: search text
+- `limit`: optional maximum result count
+
+Result shape:
+
+```json
+{
+  "results": [
+    {
+      "file": "inbox/2026-04-05-note.md",
+      "excerpt": "**Heading**\n...snippet text...",
+      "score": 1
+    }
+  ]
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Returns `{ "results": [] }` when `<workspace>/inbox/` does not exist
+- Builds or reuses a SQLite database at `<workspace>/.inbox-index.db`
+- Re-indexes Markdown files under `<workspace>/inbox/` on each search
 - Skips files whose modification time has not changed since the last index pass
 - Stores one chunk per heading section, with oversized sections split on paragraph boundaries
 - Treats level 1 to 3 headings as chunk boundaries
@@ -301,6 +342,7 @@ Behavior:
 - Moves the source file into the archive directory
 - Uses the basename of the source file for the archive name
 - Prefixes the archive filename with `Date.now()` when the target name already exists
+- Removes the archived file from `<workspace>/.inbox-index.db` so it no longer appears in inbox search results
 - Returns both archived paths relative to the workspace root
 
 ### `knowledge_read`

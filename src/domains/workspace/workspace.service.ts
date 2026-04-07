@@ -17,6 +17,7 @@ import type {
   WriteResult,
 } from './workspace.types.js';
 import { KnowledgeIndex } from './knowledge-index.js';
+import { InboxIndex } from './inbox-index.js';
 import { loadConfig } from '../../shared/config/index.js';
 
 export class WorkspaceService {
@@ -63,6 +64,13 @@ export class WorkspaceService {
 
     const filePath = join(inboxPath, `${currentDateStamp()}-${slugify(title)}.md`);
     writeFileSync(filePath, content, 'utf8');
+
+    const index = new InboxIndex(workspace.path);
+    try {
+      index.indexFile(filePath);
+    } finally {
+      index.close();
+    }
 
     return {
       file: relative(workspace.path, filePath),
@@ -116,6 +124,26 @@ export class WorkspaceService {
         index.indexFile(join(workspace.path, file.path));
       }
 
+      return index.search(query, limit);
+    } finally {
+      index.close();
+    }
+  }
+
+  searchInbox(name: string, query: string, limit = 10): SearchResults {
+    const workspace = this.resolve(name);
+    const inboxRoot = join(workspace.path, 'inbox');
+
+    if (!existsSync(inboxRoot)) {
+      return { results: [] };
+    }
+
+    const index = new InboxIndex(workspace.path);
+    try {
+      const files = this.collectMarkdownFiles(workspace.path, inboxRoot, ['archived']);
+      for (const file of files) {
+        index.indexFile(join(workspace.path, file.path));
+      }
       return index.search(query, limit);
     } finally {
       index.close();
@@ -193,6 +221,13 @@ export class WorkspaceService {
     }
 
     renameSync(source, destination);
+
+    const index = new InboxIndex(workspace.path);
+    try {
+      index.removeFile(source);
+    } finally {
+      index.close();
+    }
 
     return {
       original: relative(workspace.path, source),

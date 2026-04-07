@@ -10,6 +10,7 @@ import {
   KnowledgeListSchema,
   KnowledgeListWorkspacesSchema,
   KnowledgeReadSchema,
+  KnowledgeSearchInboxSchema,
   KnowledgeSearchSchema,
   KnowledgeWorkspaceStatusSchema,
   KnowledgeWriteSchema,
@@ -73,6 +74,13 @@ export function createMcpServer(): McpServer {
     'Search workspace knowledge.',
     KnowledgeSearchSchema,
     async ({ workspace, query, limit }) => textContent(service.search(workspace, query, limit)),
+  );
+
+  server.tool(
+    'knowledge_search_inbox',
+    'Full-text search over uncompiled inbox files in a workspace. Use this before compiling to check if an inbox file overlaps with existing inbox content.',
+    KnowledgeSearchInboxSchema,
+    async ({ workspace, query, limit }) => textContent(service.searchInbox(workspace, query, limit)),
   );
 
   server.tool(
