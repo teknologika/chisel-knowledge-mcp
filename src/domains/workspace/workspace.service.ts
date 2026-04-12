@@ -1,11 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve, join, relative } from 'node:path';
+import { basename, dirname, resolve, join, relative, sep } from 'node:path';
 import { execSync } from 'node:child_process';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type {
   ArchiveResult,
+  CompileExtendResult,
+  CompileNewResult,
   ConfigFile,
+  DedupeContext,
   IngestResult,
+  InboxFileWithContent,
   InboxListResult,
   KnowledgeFile,
   KnowledgeListResult,
@@ -47,12 +51,20 @@ export class WorkspaceService {
   status(name: string): WorkspaceStatus {
     const workspace = this.resolve(name);
     const exists = existsSync(workspace.path);
+    const inboxRoot = join(workspace.path, 'inbox');
+    const knowledgeRoot = join(workspace.path, 'knowledge');
+    const inboxCount = exists && existsSync(inboxRoot)
+      ? this.collectMarkdownFiles(workspace.path, inboxRoot, ['archived']).length
+      : 0;
+    const knowledgeCount = exists && existsSync(knowledgeRoot)
+      ? this.collectMarkdownFiles(workspace.path, knowledgeRoot).length
+      : 0;
 
     return {
       ...workspace,
       exists,
-      inboxCount: 0,
-      knowledgeCount: 0,
+      inboxCount,
+      knowledgeCount,
       lastCompiled: null,
     };
   }
@@ -79,7 +91,15 @@ export class WorkspaceService {
   }
 
   ingestClipboard(name: string, title?: string): IngestResult {
-    const clipboard = execSync('pbpaste', { encoding: 'utf8' });
+    let clipboard: string;
+    try {
+      clipboard = execSync('pbpaste', { encoding: 'utf8' });
+    } catch {
+      throw new McpError(
+        ErrorCode.InternalError,
+        'knowledge_ingest_clipboard requires macOS (pbpaste unavailable)',
+      );
+    }
     return this.ingestText(name, clipboard, title);
   }
 
@@ -150,9 +170,104 @@ export class WorkspaceService {
     }
   }
 
+  getNextInboxFile(name: string): InboxFileWithContent | null {
+    const workspace = this.resolve(name);
+    const inboxRoot = join(workspace.path, 'inbox');
+
+    if (!existsSync(inboxRoot)) {
+      return null;
+    }
+
+    const files = this.collectMarkdownFiles(workspace.path, inboxRoot, ['archived']);
+    if (files.length === 0) {
+      return null;
+    }
+
+    const first = files[0]!;
+    const absPath = join(workspace.path, first.path);
+    const content = readFileSync(absPath, 'utf8');
+
+    return {
+      file: first.path,
+      content,
+      size: first.size,
+      modified: first.modified,
+    };
+  }
+
+  getDedupeContext(name: string, file: string, query: string): DedupeContext {
+    const knowledgeMatches = this.search(name, query, 5);
+    const inboxMatches = this.searchInbox(name, query, 5);
+
+    return {
+      file,
+      knowledgeMatches: knowledgeMatches.results.filter((result) => result.file !== file),
+      inboxMatches: inboxMatches.results.filter((result) => result.file !== file),
+    };
+  }
+
+  compileNew(name: string, inboxFile: string, articlePath: string, content: string): CompileNewResult {
+    const workspace = this.resolve(name);
+    const knowledgeRoot = join(workspace.path, 'knowledge');
+    mkdirSync(knowledgeRoot, { recursive: true });
+
+    this.write(name, articlePath, content);
+
+    const indexPath = join(knowledgeRoot, 'index.md');
+    const current = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : null;
+    const topic = articlePath.split('/')[0]!;
+    const ref = articlePath.replace(/\.md$/, '');
+    const summary = extractSummary(content);
+    const updated = indexAddEntry(current, workspace.name, topic, ref, summary);
+    writeFileSync(indexPath, updated, 'utf8');
+
+    appendLog(
+      join(knowledgeRoot, 'log.md'),
+      `## [${nowISO()}] compile\n- Source: ${inboxFile}\n- Created: [[${ref}]]\n- Updated: index.md, log.md`,
+    );
+
+    this.archive(name, inboxFile);
+
+    return { articlePath: `knowledge/${articlePath}`, inboxFile, workspace: name };
+  }
+
+  compileExtend(
+    name: string,
+    inboxFile: string,
+    targetPath: string,
+    updatedContent: string,
+  ): CompileExtendResult {
+    const workspace = this.resolve(name);
+    const knowledgeRoot = join(workspace.path, 'knowledge');
+
+    this.write(name, targetPath.replace(/^knowledge\//, ''), updatedContent);
+
+    const indexPath = join(knowledgeRoot, 'index.md');
+    if (existsSync(indexPath)) {
+      const current = readFileSync(indexPath, 'utf8');
+      const ref = targetPath.replace(/^knowledge\//, '').replace(/\.md$/, '');
+      const summary = extractSummary(updatedContent);
+      const updated = indexUpdateEntry(current, ref, summary);
+      writeFileSync(indexPath, updated, 'utf8');
+    }
+
+    const ref = targetPath.replace(/^knowledge\//, '').replace(/\.md$/, '');
+    appendLog(
+      join(knowledgeRoot, 'log.md'),
+      `## [${nowISO()}] extend\n- Source: ${inboxFile}\n- Updated: [[${ref}]]`,
+    );
+
+    this.archive(name, inboxFile);
+
+    return { targetPath, inboxFile, workspace: name };
+  }
+
   read(name: string, pathName: string): ReadResult {
     const workspace = this.resolve(name);
     const filePath = resolve(workspace.path, pathName);
+    if (!filePath.startsWith(workspace.path + sep)) {
+      throw new McpError(ErrorCode.InvalidParams, 'Path escapes workspace boundary');
+    }
     const content = readFileSync(filePath, 'utf8');
 
     return {
@@ -193,7 +308,11 @@ export class WorkspaceService {
 
   write(name: string, pathName: string, content: string): WriteResult {
     const workspace = this.resolve(name);
-    const target = join(workspace.path, 'knowledge', pathName);
+    const knowledgeRoot = join(workspace.path, 'knowledge');
+    const target = join(knowledgeRoot, pathName);
+    if (!target.startsWith(knowledgeRoot + sep)) {
+      throw new McpError(ErrorCode.InvalidParams, 'Path escapes knowledge boundary');
+    }
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content, 'utf8');
 
@@ -205,13 +324,20 @@ export class WorkspaceService {
 
   archive(name: string, file: string): ArchiveResult {
     const workspace = this.resolve(name);
-    const source = join(workspace.path, file);
+    const inboxRoot = join(workspace.path, 'inbox');
+    const source = resolve(workspace.path, file);
+    if (!source.startsWith(inboxRoot + sep)) {
+      throw new McpError(ErrorCode.InvalidParams, 'File must be within inbox/');
+    }
+    if (source.startsWith(join(inboxRoot, 'archived') + sep)) {
+      throw new McpError(ErrorCode.InvalidParams, 'File is already archived');
+    }
 
     if (!existsSync(source)) {
       throw new McpError(ErrorCode.InvalidParams, `File not found: ${file}`);
     }
 
-    const archivedDir = join(workspace.path, 'inbox', 'archived');
+    const archivedDir = join(inboxRoot, 'archived');
     mkdirSync(archivedDir, { recursive: true });
 
     let destination = join(archivedDir, basename(source));
@@ -260,6 +386,10 @@ export class WorkspaceService {
         continue;
       }
 
+      if (entry.name === 'index.md' || entry.name === '_index.md') {
+        continue;
+      }
+
       const stats = statSync(entryPath);
       files.push({
         path: relative(workspaceRoot, entryPath),
@@ -299,4 +429,87 @@ function slugify(title?: string): string {
 function extractJinaTitle(content: string): string | null {
   const match = /^Title:\s*(.+)$/m.exec(content);
   return match ? match[1]!.trim() : null;
+}
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowISO(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractSummary(content: string): string {
+  const takeaways = /## Key Takeaways\s*\n([\s\S]*?)(?=\n##|$)/.exec(content);
+  if (takeaways) {
+    const bullet = /^[-*]\s+(.+)$/m.exec(takeaways[1]!);
+    if (bullet) return bullet[1]!.trim().slice(0, 100).replace(/\|/g, '\\|');
+  }
+
+  const detail = /## Detail\s*\n([\s\S]*?)(?=\n##|$)/.exec(content);
+  if (detail) return detail[1]!.trim().split('\n')[0]?.slice(0, 100).replace(/\|/g, '\\|') ?? '';
+
+  return '';
+}
+
+function appendLog(logPath: string, entry: string): void {
+  if (!existsSync(logPath)) {
+    writeFileSync(logPath, '# Build Log\n\n', 'utf8');
+  }
+
+  const current = readFileSync(logPath, 'utf8');
+  writeFileSync(logPath, current.trimEnd() + '\n\n' + entry + '\n', 'utf8');
+}
+
+function indexAddEntry(
+  current: string | null,
+  workspaceName: string,
+  topic: string,
+  ref: string,
+  summary: string,
+): string {
+  const today = todayISO();
+  const bullet = `- [[${ref}]] — ${summary}`;
+
+  if (!current) {
+    return [
+      `# Master Index — ${workspaceName}`,
+      ``,
+      `**Last compiled:** ${today}`,
+      ``,
+      `## Topics`,
+      ``,
+      `### ${topic}`,
+      bullet,
+      ``,
+    ].join('\n');
+  }
+
+  let text = current.replace(/\*\*Last compiled:\*\*\s*.+/, `**Last compiled:** ${today}`);
+
+  const topicRegex = new RegExp(`(### ${escapeRegex(topic)}\\n[\\s\\S]*?)(?=\\n###|\\s*$)`);
+  if (topicRegex.test(text)) {
+    text = text.replace(topicRegex, (section) => section.trimEnd() + '\n' + bullet);
+  } else {
+    text = text.trimEnd() + `\n\n### ${topic}\n${bullet}\n`;
+  }
+
+  return text;
+}
+
+function indexUpdateEntry(current: string, ref: string, summary: string): string {
+  const today = todayISO();
+
+  let text = current.replace(/\*\*Last compiled:\*\*\s*.+/, `**Last compiled:** ${today}`);
+
+  text = text.replace(
+    new RegExp(`(- \\[\\[${escapeRegex(ref)}\\]\\] — ).+`),
+    `$1${summary}`,
+  );
+
+  return text;
 }

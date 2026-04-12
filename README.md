@@ -2,7 +2,7 @@
 
 Standalone MCP server and library for building and managing knowledge workspaces.
 
-Canonical behavior documentation lives in [docs/chisel-knowledge-mcp.md](./docs/chisel-knowledge-mcp.md).
+Canonical behavior documentation lives in [docs/chisel-knowledge-mcp.md](./docs/chisel-knowledge-mcp.md) and is routed from [docs/CANONICAL_DOCS.md](./docs/CANONICAL_DOCS.md).
 
 ## Requirements
 
@@ -24,6 +24,17 @@ import { WorkspaceService, KnowledgeIndex } from '@teknologika/chisel-knowledge-
 ```
 
 The MCP server remains available from the `server` subpath and through the published binary.
+
+## Workspace Workflow
+
+The workspace service and MCP server expose a deterministic inbox pipeline:
+
+- `knowledge_get_next_inbox_file` returns the first unprocessed inbox file with its content.
+- `knowledge_get_dedupe_context` returns search results from both `knowledge/` and `inbox/` for a file-specific query.
+- `knowledge_compile_new` writes a new article into `knowledge/`, updates `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
+- `knowledge_compile_extend` writes a revised article into `knowledge/`, updates the article's `Updated` entry in `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
+
+These tools are deterministic. The LLM that consumes the MCP server decides the article content and the dedupe outcome; the server only performs file and index updates.
 
 ## Build
 

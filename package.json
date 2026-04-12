@@ -1,6 +1,6 @@
 {
   "name": "@teknologika/chisel-knowledge-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Standalone MCP server and library for building and managing knowledge workspaces.",
   "type": "module",
   "exports": {

@@ -28,6 +28,26 @@ const KnowledgeSearchInboxInputSchema = z.object({
   query: z.string(),
   limit: z.number().int().positive().optional(),
 });
+const KnowledgeGetNextInboxFileInputSchema = z.object({
+  workspace: z.string(),
+});
+const KnowledgeGetDedupeContextInputSchema = z.object({
+  workspace: z.string(),
+  file: z.string().describe('Inbox file path relative to workspace root'),
+  query: z.string().describe('2-3 key terms extracted from the file content'),
+});
+const KnowledgeCompileNewInputSchema = z.object({
+  workspace: z.string(),
+  inbox_file: z.string().describe('Inbox file path to archive after compile'),
+  article_path: z.string().describe('Target path relative to knowledge/ e.g. "concepts/my-article.md"'),
+  content: z.string().describe('Full compiled article markdown including YAML frontmatter'),
+});
+const KnowledgeCompileExtendInputSchema = z.object({
+  workspace: z.string(),
+  inbox_file: z.string().describe('Inbox file path to archive after extend'),
+  target_path: z.string().describe('Existing article path relative to workspace root e.g. "knowledge/concepts/existing.md"'),
+  content: z.string().describe('Full updated article markdown including YAML frontmatter'),
+});
 const KnowledgeListInboxInputSchema = z.object({
   workspace: z.string(),
 });
@@ -56,6 +76,10 @@ export const KnowledgeIngestClipboardSchema = KnowledgeIngestClipboardInputSchem
 export const KnowledgeIngestUrlSchema = KnowledgeIngestUrlInputSchema.shape;
 export const KnowledgeSearchSchema = KnowledgeSearchInputSchema.shape;
 export const KnowledgeSearchInboxSchema = KnowledgeSearchInboxInputSchema.shape;
+export const KnowledgeGetNextInboxFileSchema = KnowledgeGetNextInboxFileInputSchema.shape;
+export const KnowledgeGetDedupeContextSchema = KnowledgeGetDedupeContextInputSchema.shape;
+export const KnowledgeCompileNewSchema = KnowledgeCompileNewInputSchema.shape;
+export const KnowledgeCompileExtendSchema = KnowledgeCompileExtendInputSchema.shape;
 export const KnowledgeListInboxSchema = KnowledgeListInboxInputSchema.shape;
 export const KnowledgeWriteSchema = KnowledgeWriteInputSchema.shape;
 export const KnowledgeArchiveSchema = KnowledgeArchiveInputSchema.shape;
@@ -70,6 +94,10 @@ export const ToolSchemas = {
   knowledge_ingest_url: KnowledgeIngestUrlSchema,
   knowledge_search: KnowledgeSearchSchema,
   knowledge_search_inbox: KnowledgeSearchInboxSchema,
+  knowledge_get_next_inbox_file: KnowledgeGetNextInboxFileSchema,
+  knowledge_get_dedupe_context: KnowledgeGetDedupeContextSchema,
+  knowledge_compile_new: KnowledgeCompileNewSchema,
+  knowledge_compile_extend: KnowledgeCompileExtendSchema,
   knowledge_list_inbox: KnowledgeListInboxSchema,
   knowledge_write: KnowledgeWriteSchema,
   knowledge_archive: KnowledgeArchiveSchema,

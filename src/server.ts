@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { startMcpServer } from './infrastructure/mcp/index.js';
 
 startMcpServer().catch((err: unknown) => {

@@ -4,6 +4,10 @@ export { WorkspaceService } from './domains/workspace/workspace.service.js';
 export { KnowledgeIndex } from './domains/workspace/knowledge-index.js';
 export { InboxIndex } from './domains/workspace/inbox-index.js';
 export type {
+  InboxFileWithContent,
+  DedupeContext,
+  CompileNewResult,
+  CompileExtendResult,
   WorkspaceConfig,
   ConfigFile,
   WorkspaceListing,

@@ -19,13 +19,14 @@ The server is designed around a small set of local filesystem conventions:
 - Processed inbox files are moved into `<workspace>/inbox/archived/`
 - Inbox files are indexed into `<workspace>/.inbox-index.db` as they are written so they can be searched immediately.
 - Knowledge files continue to use `<workspace>/.knowledge-index.db` and are re-indexed on demand when searched.
+- The deterministic compile tools write curated articles, the topic-organized `knowledge/index.md`, and `knowledge/log.md` under `<workspace>/knowledge/`.
 
 ## Package entry points
 
 The published package exposes two entry points with distinct responsibilities:
 
-- `@teknologika/chisel-knowledge-mcp` is the library surface. It re-exports `WorkspaceService`, `KnowledgeIndex`, `InboxIndex`, and the workspace-related types so local consumers can work with the same service layer without speaking MCP.
-- `@teknologika/chisel-knowledge-mcp/server` is the MCP transport entry. It preserves the stdio server behavior and remains the binary target for command-line and desktop integrations.
+- `@teknologika/chisel-knowledge-mcp` is the library surface. It re-exports `WorkspaceService`, `KnowledgeIndex`, `InboxIndex`, and the workspace-related types so local consumers can work with the same deterministic service layer without speaking MCP.
+- `@teknologika/chisel-knowledge-mcp/server` is the MCP transport entry. It preserves the stdio server behavior, is emitted as an executable Node script, and remains the binary target for command-line and desktop integrations.
 
 This split keeps the protocol layer and the direct library surface aligned while allowing consumers to choose the integration style that fits their runtime.
 
@@ -62,6 +63,19 @@ If the name is unknown, the service throws:
 
 This error behavior is part of the public contract used by the MCP tools.
 
+## Deterministic inbox workflow
+
+The server does not embed an LLM or make compile decisions on its own. The MCP client or external LLM reads an inbox file, decides whether it is new or should extend existing knowledge, and then calls one of the compile tools below.
+
+The deterministic service methods that back that workflow are:
+
+- `WorkspaceService.getNextInboxFile(name)` returns the first inbox file and its content in one read.
+- `WorkspaceService.getDedupeContext(name, file, query)` returns search matches from both `knowledge/` and `inbox/` for a client-chosen query.
+- `WorkspaceService.compileNew(name, inboxFile, articlePath, content)` writes a new article, compiles the article summary into the topic-based `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
+- `WorkspaceService.compileExtend(name, inboxFile, targetPath, updatedContent)` writes an updated article, refreshes the matching summary bullet in `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
+
+The compile helpers are deterministic file operations. They do not call an LLM, do not decide whether an article should be new or extended, and do not generate content.
+
 ## Transport and logging
 
 The server uses `StdioServerTransport` from `@modelcontextprotocol/sdk/server/stdio.js`.
@@ -89,7 +103,7 @@ Behavior:
 
 ### `knowledge_workspace_status`
 
-Returns workspace metadata and placeholder status counters.
+Returns workspace metadata and live content counters.
 
 Parameters:
 
@@ -102,17 +116,21 @@ Result shape:
   "name": "second-brain",
   "path": "/Users/bruce/Vaults/SecondBrain",
   "exists": true,
-  "inboxCount": 0,
-  "knowledgeCount": 0,
+  "inboxCount": 4,
+  "knowledgeCount": 9,
   "lastCompiled": null
 }
 ```
+
+The counts reflect the current filesystem contents, so the example values vary by workspace.
 
 Behavior:
 
 - Resolves the workspace by name
 - Returns `exists` from the filesystem
-- Leaves counts at zero and `lastCompiled` at `null` until real compilation logic is added
+- Counts Markdown files under `<workspace>/inbox/`, excluding `<workspace>/inbox/archived/`
+- Counts Markdown files under `<workspace>/knowledge/`, excluding `index.md` and `_index.md`
+- Returns `lastCompiled` as `null`
 
 ### `knowledge_ingest_text`
 
@@ -151,6 +169,7 @@ Parameters:
 Behavior:
 
 - Reads text using `pbpaste`
+- Returns `McpError(ErrorCode.InternalError, "knowledge_ingest_clipboard requires macOS (pbpaste unavailable)")` when `pbpaste` is unavailable
 - Reuses the same file-writing flow as `knowledge_ingest_text`
 
 ### `knowledge_ingest_url`
@@ -211,7 +230,7 @@ Behavior:
 - Returns `{ "results": [] }` when `<workspace>/knowledge/` does not exist
 - Builds or reuses a SQLite database at `<workspace>/.knowledge-index.db`
 - Uses Node 22's built-in SQLite runtime rather than a native addon, so the search path does not depend on a host-specific `.node` binary
-- Re-indexes Markdown files under `<workspace>/knowledge/` on each search
+- Re-indexes Markdown files under `<workspace>/knowledge/` on each search, excluding `index.md` and `_index.md`
 - Skips files whose modification time has not changed since the last index pass
 - Stores one chunk per heading section, with oversized sections split on paragraph boundaries
 - Treats level 1 to 3 headings as chunk boundaries
@@ -250,6 +269,7 @@ Behavior:
 - Returns `{ "results": [] }` when `<workspace>/inbox/` does not exist
 - Builds or reuses a SQLite database at `<workspace>/.inbox-index.db`
 - Re-indexes Markdown files under `<workspace>/inbox/` on each search
+- Skips files under `<workspace>/inbox/archived/`
 - Skips files whose modification time has not changed since the last index pass
 - Stores one chunk per heading section, with oversized sections split on paragraph boundaries
 - Treats level 1 to 3 headings as chunk boundaries
@@ -257,6 +277,140 @@ Behavior:
 - Preserves image alt text for search terms
 - Returns snippets with the matching excerpt from the Markdown body and the nearest chunk heading when available
 - Normalizes query tokens into FTS prefix terms, so each word is matched with a trailing wildcard
+
+### `knowledge_get_next_inbox_file`
+
+Returns the first unprocessed inbox file and its content in a single call.
+
+Parameters:
+
+- `workspace`: workspace name
+
+Result shape:
+
+```json
+{
+  "file": "inbox/2026-04-05-note.md",
+  "content": "# Note\\n\\nContent...",
+  "size": 512,
+  "modified": "2026-04-05T10:15:00.000Z"
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Returns `null` when `<workspace>/inbox/` does not exist or has no unarchived Markdown files
+- Reads the first inbox file in sorted path order
+- Returns the file path relative to the workspace root together with the file contents, size, and modified timestamp
+
+### `knowledge_get_dedupe_context`
+
+Runs deterministic FTS searches against both the knowledge and inbox indexes for a file-specific query.
+
+Parameters:
+
+- `workspace`: workspace name
+- `file`: inbox file path relative to the workspace root
+- `query`: 2-3 key terms extracted from the file content
+
+Result shape:
+
+```json
+{
+  "file": "inbox/2026-04-05-note.md",
+  "knowledgeMatches": [
+    {
+      "file": "knowledge/concepts/related.md",
+      "excerpt": "**Heading**\\n...snippet text...",
+      "score": 1
+    }
+  ],
+  "inboxMatches": [
+    {
+      "file": "inbox/2026-04-05-other.md",
+      "excerpt": "**Heading**\\n...snippet text...",
+      "score": 1
+    }
+  ]
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Runs `knowledge/` and `inbox/` searches with a limit of 5 results each
+- Filters out matches that point back to the file being processed
+- Returns both result sets without modifying the filesystem
+
+### `knowledge_compile_new`
+
+Writes a newly compiled article, updates the index and log, and archives the source inbox file.
+
+Parameters:
+
+- `workspace`: workspace name
+- `inbox_file`: inbox file path to archive after compile
+- `article_path`: target path relative to `knowledge/`, such as `concepts/my-article.md`
+- `content`: full compiled article markdown including YAML frontmatter
+
+Result shape:
+
+```json
+{
+  "articlePath": "knowledge/concepts/my-article.md",
+  "inboxFile": "inbox/2026-04-05-note.md",
+  "workspace": "second-brain"
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Creates `<workspace>/knowledge/` if needed
+- Writes the article under `<workspace>/knowledge/<article_path>`
+- Reads the existing master index when present and otherwise starts a new `knowledge/index.md`
+- Creates a `# Master Index — {workspaceName}` document with a `## Topics` section when no index exists yet
+- Adds the article to the topic section named after the first path segment of `article_path`
+- Preserves any topic description text already stored beneath that heading
+- Stores entries as bullet links in the form `- [[{ref}]] — {summary}`
+- Derives the summary from the first bullet under `## Key Takeaways`, or from the first line under `## Detail` when takeaways are absent
+- Escapes literal pipe characters in the summary so bullet entries remain readable
+- Appends a deterministic entry to `knowledge/log.md`
+- Archives the source inbox file after the article is written
+- Returns the normalized article path together with the inbox file and workspace name
+
+### `knowledge_compile_extend`
+
+Writes an updated article, refreshes the master index timestamp, appends to the log, and archives the source inbox file.
+
+Parameters:
+
+- `workspace`: workspace name
+- `inbox_file`: inbox file path to archive after extend
+- `target_path`: existing article path relative to the workspace root, such as `knowledge/concepts/existing.md`
+- `content`: full updated article markdown including YAML frontmatter
+
+Result shape:
+
+```json
+{
+  "targetPath": "knowledge/concepts/existing.md",
+  "inboxFile": "inbox/2026-04-05-note.md",
+  "workspace": "second-brain"
+}
+```
+
+Behavior:
+
+- Resolves the workspace by name
+- Writes the updated article under the existing knowledge path
+- Replaces the matching summary bullet in `knowledge/index.md` when the index exists
+- Refreshes the `Last compiled` stamp in the master index when the index exists
+- Leaves topic descriptions and section structure intact while updating the matching bullet summary
+- Appends a deterministic entry to `knowledge/log.md`
+- Archives the source inbox file after the article is written
+- Returns the article path that was updated together with the inbox file and workspace name
 
 ### `knowledge_list_inbox`
 
@@ -311,6 +465,7 @@ Behavior:
 
 - Resolves the workspace by name
 - Resolves the target under `<workspace>/knowledge/`
+- Rejects paths that escape the knowledge boundary
 - Creates parent directories as needed
 - Writes the file as UTF-8
 - Returns the file path relative to the workspace root
@@ -337,6 +492,8 @@ Result shape:
 Behavior:
 
 - Resolves the workspace by name
+- Rejects paths outside `<workspace>/inbox/`
+- Rejects files already inside `<workspace>/inbox/archived/`
 - Verifies that the source file exists
 - Creates `<workspace>/inbox/archived/` as needed
 - Moves the source file into the archive directory
@@ -357,6 +514,7 @@ Parameters:
 Behavior:
 
 - Resolves the requested path against the workspace root
+- Rejects paths that escape the workspace boundary
 - Reads the file contents as UTF-8
 - Returns the content and file path relative to the workspace root
 
@@ -375,21 +533,26 @@ Behavior:
 - If `directory` is provided, resolves it against the workspace root
 - Does not create `knowledge/` automatically
 - Returns `.md` files recursively with path, size, and modified timestamp
+- Skips the master index files `index.md` and `_index.md`
 
 ## File naming and directory conventions
 
-Workspace roots use two well-known subdirectories:
+Workspace roots use three well-known subdirectories and three local files:
 
 - `<workspace>/inbox/` for raw ingested content
 - `<workspace>/inbox/archived/` for processed inbox files
 - `<workspace>/knowledge/` for curated or compiled knowledge
+- `<workspace>/knowledge/index.md` for the pipeline-maintained master index, organized by topic sections and bullet entries
+- `<workspace>/knowledge/log.md` for the pipeline-maintained build log
 - `<workspace>/.knowledge-index.db` for the local FTS index used by `knowledge_search`
 
 Ingest tools write to `inbox/`. Inbox listing and archiving tools operate on `inbox/`, while read and list tools operate on `knowledge/` unless a specific path is provided.
 
 All ingest tools preserve the same output contract: they create a dated Markdown file under `<workspace>/inbox/` and return the file path relative to the workspace root together with the workspace name.
 
-The search tool rebuilds its index from the Markdown files in `knowledge/` on demand, so search results always reflect the current filesystem state without requiring a separate indexing command. The database file is created the first time the search path runs against a workspace that already has a `knowledge/` directory.
+The master index is the canonical human-readable catalog of compiled articles. It is excluded from knowledge listing and search, so only content files contribute to workspace counts and FTS indexing.
+
+The search tool rebuilds its index from the Markdown files in `knowledge/` on demand, excluding the master index files, so search results always reflect the current filesystem state without requiring a separate indexing command. The database file is created the first time the search path runs against a workspace that already has a `knowledge/` directory.
 
 The default ingest filename format is:
 

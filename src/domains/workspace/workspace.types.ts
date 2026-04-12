@@ -67,3 +67,28 @@ export type SearchResult = {
 export type SearchResults = {
   results: SearchResult[];
 };
+
+export type InboxFileWithContent = {
+  file: string;
+  content: string;
+  size: number;
+  modified: string;
+};
+
+export type DedupeContext = {
+  file: string;
+  knowledgeMatches: SearchResult[];
+  inboxMatches: SearchResult[];
+};
+
+export type CompileNewResult = {
+  articlePath: string;
+  inboxFile: string;
+  workspace: string;
+};
+
+export type CompileExtendResult = {
+  targetPath: string;
+  inboxFile: string;
+  workspace: string;
+};
