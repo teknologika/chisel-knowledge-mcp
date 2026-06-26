@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, resolve, join, relative, sep } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type {
   ArchiveResult,
@@ -23,6 +24,13 @@ import type {
 import { KnowledgeIndex } from './knowledge-index.js';
 import { InboxIndex } from './inbox-index.js';
 import { loadConfig } from '../../shared/config/index.js';
+
+const VTT_TIMESTAMP = /^\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?(?:\s+-->\s+.*)?$/;
+const SRT_CUE_NUMBER = /^\d+$/;
+const INLINE_TAG = /<[^>]+>/g;
+const BRACKET_NOISE = /\[(?:music|laughter|applause)\]/gi;
+const MULTI_SPACE = /[ \t]+/g;
+const TRANSITION_SPLIT = /([.!?]["']?)\s+((?:So|Now|Today|Next|Finally)\s+)/g;
 
 export class WorkspaceService {
   constructor(private readonly config: ConfigFile = loadConfig()) {}
@@ -126,6 +134,56 @@ export class WorkspaceService {
     const resolvedTitle = title ?? extractJinaTitle(content) ?? url;
 
     return this.ingestText(name, content, resolvedTitle);
+  }
+
+  async ingestYoutube(name: string, url: string, title?: string): Promise<IngestResult> {
+    const sanitisedUrl = sanitiseYouTubeUrl(url);
+
+    try {
+      execSync('yt-dlp --version', { stdio: 'ignore' });
+    } catch {
+      throw new McpError(
+        ErrorCode.InternalError,
+        'knowledge_ingest_youtube requires yt-dlp but it was not found on PATH',
+      );
+    }
+
+    const metaRaw = execFileSync('yt-dlp', ['--skip-download', '--dump-single-json', sanitisedUrl], {
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    const meta = JSON.parse(metaRaw) as { channel?: string; uploader?: string; title?: string };
+    const videoTitle = title ?? meta.title ?? 'Untitled Video';
+    const channel = meta.channel ?? meta.uploader ?? 'Unknown Channel';
+
+    const tmpDir = mkdtempSync(join(tmpdir(), 'yt-transcript-'));
+    try {
+      execFileSync('yt-dlp', [
+        '--skip-download',
+        '--write-subs',
+        '--write-auto-subs',
+        '--sub-langs', 'en.*,en',
+        '--sub-format', 'vtt/srt/best',
+        '--output', join(tmpDir, '%(id)s.%(ext)s'),
+        sanitisedUrl,
+      ], { timeout: 300_000 });
+
+      const subtitleFile = findSubtitleFile(tmpDir);
+      if (!subtitleFile) {
+        throw new McpError(ErrorCode.InternalError, 'No English subtitles were found for this video');
+      }
+
+      const raw = readFileSync(subtitleFile, 'utf8');
+      const cleaned = cleanTranscript(raw);
+      if (!cleaned) {
+        throw new McpError(ErrorCode.InternalError, 'Subtitle file did not contain transcript text');
+      }
+
+      const markdown = renderTranscriptMarkdown(videoTitle, sanitisedUrl, cleaned);
+      return this.ingestText(name, markdown, `${channel} - ${videoTitle}`);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   }
 
   search(name: string, query: string, limit = 10): SearchResults {
@@ -429,6 +487,298 @@ function slugify(title?: string): string {
 function extractJinaTitle(content: string): string | null {
   const match = /^Title:\s*(.+)$/m.exec(content);
   return match ? match[1]!.trim() : null;
+}
+
+function sanitiseYouTubeUrl(url: string): string {
+  const ampersand = url.indexOf('&');
+  return ampersand === -1 ? url : url.slice(0, ampersand);
+}
+
+function findSubtitleFile(dir: string): string | null {
+  const files = readdirSync(dir)
+    .filter((file) => file.endsWith('.vtt') || file.endsWith('.srt'))
+    .sort();
+  return files.length > 0 ? join(dir, files[0]!) : null;
+}
+
+function renderTranscriptMarkdown(title: string, url: string, transcript: string): string {
+  const parts: string[] = [];
+  if (title) parts.push(`# ${title.trim()}`);
+  if (url) parts.push(`[YouTube](${url})`);
+  parts.push(transcript.trim());
+  return parts.join('\n\n') + '\n';
+}
+
+export function cleanTranscript(input: string): string {
+  const paragraphs: string[][] = [];
+  let paragraph: string[] = [];
+  let lastLine = '';
+  let inSkipBlock = false;
+
+  const lines = input
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/>>/g, '\n')
+    .split('\n');
+
+  const flushParagraph = (): void => {
+    if (paragraph.length > 0) {
+      paragraphs.push(paragraph);
+      paragraph = [];
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = normalizeCaptionLine(rawLine);
+
+    if (!line) {
+      inSkipBlock = false;
+      continue;
+    }
+    if (line === 'WEBVTT' || line.startsWith('Kind:') || line.startsWith('Language:')) {
+      continue;
+    }
+    if (line.startsWith('STYLE') || line.startsWith('NOTE') || line.startsWith('REGION')) {
+      inSkipBlock = true;
+      continue;
+    }
+    if (inSkipBlock) {
+      continue;
+    }
+    if (line.includes('-->') || VTT_TIMESTAMP.test(line) || SRT_CUE_NUMBER.test(line)) {
+      continue;
+    }
+
+    for (const segment of splitTransitionSentences(line)) {
+      if (segment === lastLine) {
+        continue;
+      }
+
+      const previous = paragraph.at(-1);
+      if (previous && isDuplicateFragment(previous, segment)) {
+        if (segment.length > previous.length) {
+          paragraph[paragraph.length - 1] = segment;
+          lastLine = segment;
+        }
+        continue;
+      }
+
+      const duplicateIndex = duplicateFragmentIndex(paragraph, segment);
+      if (duplicateIndex !== -1) {
+        paragraph = paragraph.slice(0, duplicateIndex);
+      }
+
+      if (shouldStartParagraph(paragraph, segment)) {
+        flushParagraph();
+      }
+
+      paragraph.push(segment);
+      lastLine = segment;
+    }
+  }
+
+  flushParagraph();
+
+  const joined = paragraphs
+    .map((lines) => collapseRepeatedWordRuns(joinCaptionLines(lines)))
+    .filter((paragraph) => paragraph.length > 0);
+
+  return collapseRepeatedParagraphFragments(joined).join('\n\n');
+}
+
+function normalizeCaptionLine(line: string): string {
+  return line
+    .trim()
+    .replace(/\u00a0/g, ' ')
+    .replace(INLINE_TAG, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(BRACKET_NOISE, '')
+    .replace(MULTI_SPACE, ' ')
+    .trim();
+}
+
+function isDuplicateFragment(previous: string, current: string): boolean {
+  if (previous === current) {
+    return true;
+  }
+
+  const shorter = previous.length <= current.length ? previous : current;
+  const longer = previous.length <= current.length ? current : previous;
+  return shorter.length >= 18 && longer.startsWith(shorter);
+}
+
+function duplicateFragmentIndex(lines: string[], current: string): number {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (isDuplicateFragment(lines[index]!, current)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function splitTransitionSentences(line: string): string[] {
+  const segments: string[] = [];
+  let cursor = 0;
+  TRANSITION_SPLIT.lastIndex = 0;
+
+  for (let match = TRANSITION_SPLIT.exec(line); match; match = TRANSITION_SPLIT.exec(line)) {
+    const punctuation = match[1]!;
+    const transition = match[2]!;
+    const endOfPrevious = match.index + punctuation.length;
+    const startOfNext = match.index + match[0].length - transition.length;
+
+    const previous = line.slice(cursor, endOfPrevious).trim();
+    if (previous) {
+      segments.push(previous);
+    }
+    cursor = startOfNext;
+  }
+
+  const tail = line.slice(cursor).trim();
+  if (tail) {
+    segments.push(tail);
+  }
+
+  return segments.length > 0 ? segments : [line.trim()];
+}
+
+function shouldStartParagraph(existing: string[], next: string): boolean {
+  if (existing.length === 0) {
+    return false;
+  }
+
+  const previous = existing.at(-1)!;
+  const lowerNext = next.toLowerCase();
+  return /[.!?"]$/.test(previous) &&
+    (lowerNext.startsWith('so ') ||
+      lowerNext.startsWith('now ') ||
+      lowerNext.startsWith('today ') ||
+      lowerNext.startsWith('next ') ||
+      lowerNext.startsWith('finally '));
+}
+
+function joinCaptionLines(lines: string[]): string {
+  let output = '';
+  for (const line of lines) {
+    if (!output) {
+      output = line;
+      continue;
+    }
+
+    output += /^[.,;:!?)]}]/.test(line) ? line : ` ${line}`;
+  }
+  return output;
+}
+
+function collapseRepeatedWordRuns(text: string): string {
+  let words = text.split(/\s+/).filter(Boolean);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    runLoop:
+    for (let runLength = 16; runLength >= 3; runLength -= 1) {
+      for (let index = 0; index + runLength * 2 <= words.length; index += 1) {
+        const left = words.slice(index, index + runLength).join(' ');
+        const right = words.slice(index + runLength, index + runLength * 2).join(' ');
+        if (left === right) {
+          words = [
+            ...words.slice(0, index + runLength),
+            ...words.slice(index + runLength * 2),
+          ];
+          changed = true;
+          break runLoop;
+        }
+      }
+    }
+  }
+
+  return words.join(' ');
+}
+
+function collapseRepeatedParagraphFragments(paragraphs: string[]): string[] {
+  let current = paragraphs;
+  let next = collapseRepeatedParagraphFragmentsOnce(current);
+
+  while (!sameStringArray(current, next)) {
+    current = next;
+    next = collapseRepeatedParagraphFragmentsOnce(current);
+  }
+
+  return current;
+}
+
+function collapseRepeatedParagraphFragmentsOnce(paragraphs: string[]): string[] {
+  const collapsed: string[] = [];
+
+  for (let index = 0; index < paragraphs.length; index += 1) {
+    const first = paragraphs[index];
+    const second = paragraphs[index + 1];
+    const third = paragraphs[index + 2];
+    const fourth = paragraphs[index + 3];
+
+    if (
+      first !== undefined &&
+      second !== undefined &&
+      third !== undefined &&
+      fourth !== undefined &&
+      first === third &&
+      paragraphExtends(second, fourth)
+    ) {
+      collapsed.push(first, second, fourth);
+      index += 2;
+      continue;
+    }
+
+    if (first !== undefined && second !== undefined && paragraphExtends(first, second)) {
+      collapsed.push(second);
+      index += 1;
+      continue;
+    }
+
+    if (first !== undefined) {
+      collapsed.push(first);
+    }
+  }
+
+  return collapsed;
+}
+
+function paragraphExtends(shorter: string, longer: string): boolean {
+  const shortText = normalizeParagraphForComparison(shorter);
+  const longText = normalizeParagraphForComparison(longer);
+
+  if (longText.length <= shortText.length || shortText.length < 12) {
+    return false;
+  }
+  if (longText.startsWith(shortText)) {
+    return true;
+  }
+
+  const shortWords = shortText.split(' ').filter(Boolean);
+  const longWords = longText.split(' ').filter(Boolean);
+  if (shortWords.length < 3 || longWords.length < 3) {
+    return false;
+  }
+
+  let common = 0;
+  while (common < shortWords.length && common < longWords.length && shortWords[common] === longWords[common]) {
+    common += 1;
+  }
+
+  return common >= 3 && common >= shortWords.length - 1;
+}
+
+function normalizeParagraphForComparison(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function todayISO(): string {

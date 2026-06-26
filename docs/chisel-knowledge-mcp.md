@@ -14,7 +14,7 @@ The package is dual-mode:
 The server is designed around a small set of local filesystem conventions:
 
 - Workspace roots are defined in `~/.chisel/knowledge-mcp-config.json`
-- Raw and fetched ingests are written to `<workspace>/inbox/`
+- Raw, fetched, and transcript ingests are written to `<workspace>/inbox/`
 - Compiled or curated content is read from `<workspace>/knowledge/`
 - Processed inbox files are moved into `<workspace>/inbox/archived/`
 - Inbox files are indexed into `<workspace>/.inbox-index.db` as they are written so they can be searched immediately.
@@ -199,6 +199,43 @@ Behavior:
 - Extracts the title from Jina frontmatter when no explicit title is provided
 - Falls back to the source URL when neither an explicit title nor Jina title metadata is available
 - Reuses the same file-writing flow as `knowledge_ingest_text`
+
+### `knowledge_ingest_youtube`
+
+Downloads an English YouTube transcript with `yt-dlp`, cleans subtitle markup and repeated caption fragments, then writes the transcript Markdown into the workspace inbox.
+
+Parameters:
+
+- `workspace`: workspace name
+- `url`: YouTube video URL
+- `title`: optional title override; when omitted, the video metadata title is used
+
+Result shape:
+
+```json
+{
+  "file": "inbox/2026-04-05-channel-video-title.md",
+  "workspace": "second-brain"
+}
+```
+
+Behavior:
+
+- Sanitises the URL before every `yt-dlp` call by removing everything from the first `&` onward. The sanitised URL is also the URL written into the transcript Markdown.
+- Requires `yt-dlp` to be available on `PATH`.
+- Returns `McpError(ErrorCode.InternalError, "knowledge_ingest_youtube requires yt-dlp but it was not found on PATH")` when the dependency is unavailable.
+- Reads video metadata with `yt-dlp --skip-download --dump-single-json` and uses the optional `title` parameter, metadata title, or `Untitled Video` as the transcript heading.
+- Uses metadata `channel`, metadata `uploader`, or `Unknown Channel` for the inbox file title prefix.
+- Downloads subtitles into a temporary directory with `--write-subs`, `--write-auto-subs`, English language selection (`en.*,en`), and `vtt/srt/best` format selection.
+- Chooses the first downloaded `.vtt` or `.srt` subtitle file in alphabetical order.
+- Returns `McpError(ErrorCode.InternalError, "No English subtitles were found for this video")` when no downloaded English subtitle file is present.
+- Normalises VTT/SRT content by removing cue numbers, timestamps, WEBVTT metadata blocks, inline tags, common bracketed noise markers, and supported HTML entities.
+- Collapses duplicate caption lines, repeated word runs, and repeated paragraph fragments produced by rolling subtitle windows.
+- Splits transcript paragraphs at sentence transitions beginning with `So`, `Now`, `Today`, `Next`, or `Finally`.
+- Returns `McpError(ErrorCode.InternalError, "Subtitle file did not contain transcript text")` when subtitle cleanup leaves no transcript content.
+- Writes Markdown with a title heading, a `[YouTube](<sanitised-url>)` link, and the cleaned transcript body.
+- Removes the temporary subtitle directory before returning or surfacing an error.
+- Reuses the same file-writing and inbox-indexing flow as `knowledge_ingest_text`.
 
 ### `knowledge_search`
 

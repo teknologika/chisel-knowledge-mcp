@@ -18,6 +18,11 @@ const KnowledgeIngestUrlInputSchema = z.object({
   url: z.string(),
   title: z.string().optional(),
 });
+const KnowledgeIngestYoutubeInputSchema = z.object({
+  workspace: z.string().describe('Workspace name'),
+  url: z.string().describe('YouTube video URL'),
+  title: z.string().optional().describe('Optional title override; defaults to video metadata title'),
+});
 const KnowledgeSearchInputSchema = z.object({
   workspace: z.string(),
   query: z.string(),
@@ -74,6 +79,7 @@ export const KnowledgeWorkspaceStatusSchema = KnowledgeWorkspaceStatusInputSchem
 export const KnowledgeIngestTextSchema = KnowledgeIngestTextInputSchema.shape;
 export const KnowledgeIngestClipboardSchema = KnowledgeIngestClipboardInputSchema.shape;
 export const KnowledgeIngestUrlSchema = KnowledgeIngestUrlInputSchema.shape;
+export const KnowledgeIngestYoutubeSchema = KnowledgeIngestYoutubeInputSchema.shape;
 export const KnowledgeSearchSchema = KnowledgeSearchInputSchema.shape;
 export const KnowledgeSearchInboxSchema = KnowledgeSearchInboxInputSchema.shape;
 export const KnowledgeGetNextInboxFileSchema = KnowledgeGetNextInboxFileInputSchema.shape;
@@ -92,6 +98,7 @@ export const ToolSchemas = {
   knowledge_ingest_text: KnowledgeIngestTextSchema,
   knowledge_ingest_clipboard: KnowledgeIngestClipboardSchema,
   knowledge_ingest_url: KnowledgeIngestUrlSchema,
+  knowledge_ingest_youtube: KnowledgeIngestYoutubeSchema,
   knowledge_search: KnowledgeSearchSchema,
   knowledge_search_inbox: KnowledgeSearchInboxSchema,
   knowledge_get_next_inbox_file: KnowledgeGetNextInboxFileSchema,

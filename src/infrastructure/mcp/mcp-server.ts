@@ -10,6 +10,7 @@ import {
   KnowledgeIngestClipboardSchema,
   KnowledgeIngestTextSchema,
   KnowledgeIngestUrlSchema,
+  KnowledgeIngestYoutubeSchema,
   KnowledgeListInboxSchema,
   KnowledgeListSchema,
   KnowledgeListWorkspacesSchema,
@@ -71,6 +72,14 @@ export function createMcpServer(): McpServer {
     'Ingest a URL into a workspace inbox.',
     KnowledgeIngestUrlSchema,
     async ({ workspace, url, title }) => textContent(await service.ingestUrl(workspace, url, title)),
+  );
+
+  server.tool(
+    'knowledge_ingest_youtube',
+    'Download a YouTube video transcript via yt-dlp, clean the subtitle markup, and write it into a workspace inbox.',
+    KnowledgeIngestYoutubeSchema,
+    async ({ workspace, url, title }) =>
+      textContent(await service.ingestYoutube(workspace, url, title)),
   );
 
   server.tool(
