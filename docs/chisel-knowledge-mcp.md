@@ -13,13 +13,13 @@ The package is dual-mode:
 
 The server is designed around a small set of local filesystem conventions:
 
-- Workspace roots are defined in `~/.chisel/config.json`
+- Workspace roots are defined in `~/.chisel/knowledge-mcp-config.json`
 - Raw and fetched ingests are written to `<workspace>/inbox/`
 - Compiled or curated content is read from `<workspace>/knowledge/`
 - Processed inbox files are moved into `<workspace>/inbox/archived/`
 - Inbox files are indexed into `<workspace>/.inbox-index.db` as they are written so they can be searched immediately.
 - Knowledge files continue to use `<workspace>/.knowledge-index.db` and are re-indexed on demand when searched.
-- The deterministic compile tools write curated articles, the topic-organized `knowledge/index.md`, and `knowledge/log.md` under `<workspace>/knowledge/`.
+- The deterministic compile tools write curated articles, the topic-structured `knowledge/index.md`, and `knowledge/log.md` under `<workspace>/knowledge/`.
 
 ## Package entry points
 
@@ -32,7 +32,7 @@ This split keeps the protocol layer and the direct library surface aligned while
 
 ## Startup and configuration
 
-On startup, the server reads `~/.chisel/config.json`.
+On startup, the server reads `~/.chisel/knowledge-mcp-config.json`.
 
 If the file does not exist, the server starts with zero configured workspaces and logs a warning to stderr. Configuration is validated with Zod before use.
 
@@ -71,7 +71,7 @@ The deterministic service methods that back that workflow are:
 
 - `WorkspaceService.getNextInboxFile(name)` returns the first inbox file and its content in one read.
 - `WorkspaceService.getDedupeContext(name, file, query)` returns search matches from both `knowledge/` and `inbox/` for a client-chosen query.
-- `WorkspaceService.compileNew(name, inboxFile, articlePath, content)` writes a new article, compiles the article summary into the topic-based `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
+- `WorkspaceService.compileNew(name, inboxFile, articlePath, content)` writes a new article, compiles the article summary into a topic-sectioned `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
 - `WorkspaceService.compileExtend(name, inboxFile, targetPath, updatedContent)` writes an updated article, refreshes the matching summary bullet in `knowledge/index.md`, appends `knowledge/log.md`, and archives the source inbox file.
 
 The compile helpers are deterministic file operations. They do not call an LLM, do not decide whether an article should be new or extended, and do not generate content.
@@ -369,13 +369,16 @@ Behavior:
 - Resolves the workspace by name
 - Creates `<workspace>/knowledge/` if needed
 - Writes the article under `<workspace>/knowledge/<article_path>`
-- Reads the existing master index when present and otherwise starts a new `knowledge/index.md`
+- Reads `knowledge/index.md` when it exists and otherwise starts a new master index
 - Creates a `# Master Index — {workspaceName}` document with a `## Topics` section when no index exists yet
-- Adds the article to the topic section named after the first path segment of `article_path`
+- Derives the topic from the first path segment of `article_path`
+- Derives the reference path from `article_path` without the `.md` suffix and without a `knowledge/` prefix
+- Adds the article to the topic section named after that topic
 - Preserves any topic description text already stored beneath that heading
 - Stores entries as bullet links in the form `- [[{ref}]] — {summary}`
-- Derives the summary from the first bullet under `## Key Takeaways`, or from the first line under `## Detail` when takeaways are absent
+- Derives the summary from `extractSummary(content)`
 - Escapes literal pipe characters in the summary so bullet entries remain readable
+- Updates the `Last compiled` stamp when the master index exists
 - Appends a deterministic entry to `knowledge/log.md`
 - Archives the source inbox file after the article is written
 - Returns the normalized article path together with the inbox file and workspace name
@@ -405,7 +408,10 @@ Behavior:
 
 - Resolves the workspace by name
 - Writes the updated article under the existing knowledge path
-- Replaces the matching summary bullet in `knowledge/index.md` when the index exists
+- Reads `knowledge/index.md` when it exists
+- Derives the reference path from `target_path` without a `knowledge/` prefix and without the `.md` suffix
+- Derives the summary from `extractSummary(updatedContent)`
+- Updates the matching bullet summary in the topic section that already owns that reference
 - Refreshes the `Last compiled` stamp in the master index when the index exists
 - Leaves topic descriptions and section structure intact while updating the matching bullet summary
 - Appends a deterministic entry to `knowledge/log.md`
@@ -533,7 +539,7 @@ Behavior:
 - If `directory` is provided, resolves it against the workspace root
 - Does not create `knowledge/` automatically
 - Returns `.md` files recursively with path, size, and modified timestamp
-- Skips the master index files `index.md` and `_index.md`
+- Skips the master index files `index.md` and `_index.md` so the master index never appears in knowledge listings or indexing
 
 ## File naming and directory conventions
 
